@@ -1,82 +1,65 @@
-# Fractional-Order PID (FOPID) for DC Motor Speed Control
+# PID vs. Fractional-Order PID for DC Motor Speed Control
 
-**MATLAB/PSO optimization · Siemens S7-1200 PLC · Grünwald–Letnikov discretization**
+**MATLAB PSO optimization · Siemens PLC SCL control-loop excerpt · DC motor speed control**
 
-This repository is a **credited technical study and source archive** of an industrial motor-speed control project comparing conventional **PID** with **fractional-order PID (PI^λD^μ)**. It brings together the code shared in a [Google Drive project folder](https://drive.google.com/drive/folders/11zTw4uKzmxQ4Z31S2awmMDKce1stDv-_) and technical explanations derived from the accompanying master's thesis.
+This repository organizes the source code shared in the [original project Drive folder](https://drive.google.com/drive/folders/11zTw4uKzmxQ4Z31S2awmMDKce1stDv-_). It compares **classical PID** and **fractional-order PID (FOPID)** controllers for a motor-speed model and documents a fractional-control algorithm written in Siemens Structured Control Language (SCL).
 
-**Original research authors:** **Kaim Abdeldjalil and Ighil Abderraouf**. **Supervisor:** Dr. Haddouche Rezki. **Institution:** IGEE / University of Boumerdes, Algeria (2025–2026).
+**Original project authors:** Kaim Abdeldjalil and Ighil Abderraouf. The GitHub maintainer is publishing an attributed technical source archive, not claiming authorship of the original implementation.
 
-> **Provenance:** This repository is not presented as research personally performed by its GitHub maintainer. The thesis PDF was used **only as a technical reference and has not been uploaded**. MATLAB and PLC source files are credited to the original shared project. No open-source license is asserted for that third-party work.
+## Project overview
 
-## Overview
+- **Classical PID**: three gains (Kp, Ki, Kd).
+- **Fractional PID**: five parameters (Kp, Ki, Kd, lambda, mu).
+- **Optimization**: Particle Swarm Optimization (PSO) with an ITAE-based cost, control-effort and saturation penalties.
+- **Simulation**: MATLAB controller design and step-response comparison.
+- **PLC algorithm**: discrete Grünwald–Letnikov weighted-error sums, actuator saturation, and monitor variables in SCL.
 
-- **Plant:** DC motor speed regulation
-- **Controllers:** PID (3 gains) versus FOPID (5 parameters: `Kp`, `Ki`, `Kd`, `lambda`, `mu`)
-- **Tuning:** Particle Swarm Optimization (PSO) in MATLAB with the fractional transfer-function (`fotf`) toolbox
-- **Discretization:** Truncated Grünwald–Letnikov weighted error history
-- **Industrial platform described in the thesis:** Siemens S7-1200 CPU 1215C DC/DC/DC, TIA Portal, periodic **10 ms** task
-- **Evaluation:** Reference tracking, overshoot, settling time, steady-state error, disturbance response
+## Files
 
-## Repository contents
-
-| Folder / file | Description |
+| Path | Description |
 | --- | --- |
-| [`matlab/optimization_controllers.m`](matlab/optimization_controllers.m) | MATLAB PSO optimization and PID–FOPID comparison; one local function relocated to the script end for MATLAB syntax |
-| [`matlab/pid_cost.m`](matlab/pid_cost.m) | PID PSO cost function |
-| [`matlab/fopid_cost.m`](matlab/fopid_cost.m) | FOPID PSO cost function |
-| [`plc/FB_FOPID_SIL_excerpt.scl`](plc/FB_FOPID_SIL_excerpt.scl) | Siemens SCL excerpt with fractional weighted sums and motor-model simulation; **not** a complete TIA Portal project |
-| [`source_original/`](source_original/) | Source-text originals supplied through Drive |
-| [`docs/PLC_IMPLEMENTATION.md`](docs/PLC_IMPLEMENTATION.md) | PLC architecture and hardware context described by the thesis |
-| [`docs/THESIS_RESULTS.md`](docs/THESIS_RESULTS.md) | Reported PID versus FOPID metrics, **not independently remeasured** |
-| [`docs/REPRODUCIBILITY.md`](docs/REPRODUCIBILITY.md) | Known source/script differences, missing project files, and validation limits |
-| [`docs/PROVENANCE_AND_RIGHTS.md`](docs/PROVENANCE_AND_RIGHTS.md) | Source and attribution details |
+| [`matlab/optimization_controllers.m`](matlab/optimization_controllers.m) | PSO tuning and PID/FOPID comparison (local helper moved to end for MATLAB script layout) |
+| [`matlab/pid_cost.m`](matlab/pid_cost.m) | PID objective function |
+| [`matlab/fopid_cost.m`](matlab/fopid_cost.m) | FOPID objective function |
+| [`plc/FB_FOPID_SIL_excerpt.scl`](plc/FB_FOPID_SIL_excerpt.scl) | PLC algorithm excerpt, including simulated motor-model feedback |
+| [`source_original/`](source_original/) | Preserved source files from Drive |
+| [`docs/PLC_IMPLEMENTATION.md`](docs/PLC_IMPLEMENTATION.md) | Explanation of the supplied PLC excerpt |
+| [`docs/REPRODUCIBILITY.md`](docs/REPRODUCIBILITY.md) | Source-level limitations and requirements |
+| [`docs/PROVENANCE_AND_RIGHTS.md`](docs/PROVENANCE_AND_RIGHTS.md) | Credits and source origins |
 
-## Controller model
+## Control principles
 
-The fractional PID law in the research is:
-
-```text
-C(s) = Kp + Ki / s^lambda + Kd * s^mu
-```
-
-The PLC excerpt uses finite Grünwald–Letnikov sums on a rolling buffer of recent tracking errors:
+The ideal fractional controller is:
 
 ```text
-u[k] = Kp * e[k] + Ki * sum(Wi[j] * e[k-j]) + Kd * sum(Wd[j] * e[k-j])
+C(s) = Kp + Ki/s^lambda + Kd*s^mu
 ```
 
-The shared SCL excerpt uses buffer positions **0..20**; this is 21 current/past values. The thesis describes a truncation length of 20 samples, so its indexing conventions must be reconciled before commissioning.
+The SCL excerpt computes a finite-window discrete approximation from stored error samples:
 
-## Results reported in the thesis
+```text
+u[k] = Kp*e[k] + Ki*sum(Wi[j]*e[k-j]) + Kd*sum(Wd[j]*e[k-j])
+```
 
-| MATLAB step metric | PID | FOPID |
-| --- | ---: | ---: |
-| Rise time | 0.340 s | 0.140 s |
-| Settling time | 0.580 s | 0.270 s |
-| Overshoot | 0.2911% | 0.1048% |
-| Steady-state error | 0.0063 rad/s | 0.0676 rad/s |
+The code uses error-history indexes 0–20, with weights and parameters provided through external data blocks.
 
-These are **reported research results**, not a verification run from this repository. FOPID had faster nominal transients in the cited study; PID had lower steady-state error in the reported table.
+## Running the MATLAB code
 
-## Re-running the MATLAB examples
+Use MATLAB with the Control System Toolbox and a compatible fractional-order `fotf` library. From the `matlab/` directory, run:
 
-1. Install MATLAB, Control System Toolbox, and the compatible **FOTF/FOMCON** fractional-order transfer-function toolbox.
-2. Place the `matlab/` folder on the MATLAB path.
-3. Run `optimization_controllers.m`.
-4. Read [reproducibility notes](docs/REPRODUCIBILITY.md) before interpreting the resulting gains or plots. **These scripts have not been executed or independently validated during this publication workflow.**
+```matlab
+optimization_controllers
+```
 
-The shared optimization source has discrepancies in model captions, voltage labels, PSO settings and simulation intervals. Preserving and documenting these differences is preferable to silently modifying scientific results.
+**Important:** The optimizer uses a second-order motor model with a Padé-approximated delay and a 15 V actuator bound. Some comments and figure labels in the supplied code describe different settings. The scripts were not executed during repository preparation. Read [source-level reproducibility notes](docs/REPRODUCIBILITY.md) before comparing results.
 
-## What is *not* uploaded
+## Limitations
 
-- **No thesis PDF** (reference only, as requested)
-- No original report cover or author photos
-- No full native TIA Portal project or complete PLC data blocks
-- No claim of new experimental hardware validation
-- The original Drive figures remain available from the [source folder](https://drive.google.com/drive/folders/11zTw4uKzmxQ4Z31S2awmMDKce1stDv-_); the repo does not republish the images
+- This repository does **not** contain a complete native TIA Portal project, all data-block declarations, or a physical I/O configuration.
+- The SCL excerpt includes a **simulated plant** update; it is not proof of deployed closed-loop hardware operation.
+- No performance claim is independently validated by a new MATLAB or PLC run.
+- The shared project source remains credited to its original authors; no reuse license has been assigned here.
 
-## Attribution and rights
+## Original source and attribution
 
-Research: **Kaim Abdeldjalil and Ighil Abderraouf** (2025–2026), supervisor **Dr. Haddouche Rezki**. These materials are shared for learning and technical discussion with source attribution. **The GitHub maintainer should confirm authorization to publicly redistribute the original code.** No license is assigned to the original authors' materials here.
-
-See [provenance](docs/PROVENANCE_AND_RIGHTS.md) and [known limitations](docs/REPRODUCIBILITY.md).
+Original code is taken from the [shared Drive project folder](https://drive.google.com/drive/folders/11zTw4uKzmxQ4Z31S2awmMDKce1stDv-_). Research and code credit: **Kaim Abdeldjalil and Ighil Abderraouf**. Confirm the original authors' permission for continued public redistribution.
