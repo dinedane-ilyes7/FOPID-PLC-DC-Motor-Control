@@ -1,0 +1,23 @@
+# MATLAB generated files
+*.asv
+*.autosave
+*.mex*
+*.slxc
+slprj/
+codegen/
+*.mexa64
+*.mexw64
+
+# Siemens TIA Portal backups and local user directories
+*.bak
+*.tmp
+*.log
+
+# OS and editor artifacts
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Local experimental data (retain shared/reproducible measurements only when approved)
+local_data/
