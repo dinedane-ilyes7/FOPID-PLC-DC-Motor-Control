@@ -1,0 +1,121 @@
+
+//  STEP 1 — Compute current tracking error
+//  e(k) = SP - omega(k)
+//  omega(k) comes from the motor model updated at the END of the
+//  previous OB30 cycle, so it represents the plant output at time k.
+// ════════════════════════════════════════════════════════════════════
+#e_now := "DB_Params".SP - "DB_FOPID".omega;
+
+
+// ════════════════════════════════════════════════════════════════════
+//  STEP 2 — Shift the error history buffer (newest at index 0)
+//
+//  Before shift:  e_buf[0]=e(k-1), e_buf[1]=e(k-2), ..., e_buf[20]=e(k-21)
+//  After shift:   e_buf[0]=e(k-1), e_buf[1]=e(k-2), ..., e_buf[20]=e(k-21)
+//  Then insert:   e_buf[0] = e(k)
+//
+
+// ════════════════════════════════════════════════════════════════════
+FOR #j := 20 TO 1 BY -1 DO
+    "DB_FOPID".e_buf[#j] := "DB_FOPID".e_buf[#j - 1];
+END_FOR;
+
+
+// ════════════════════════════════════════════════════════════════════
+//  STEP 3 — Insert current error at index 0 (front of buffer)
+//  After this line:
+// ════════════════════════════════════════════════════════════════════
+"DB_FOPID".e_buf[0] := #e_now;
+
+
+// ════════════════════════════════════════════════════════════════════
+//  STEP 4 — Compute fractional integral term
+//
+//  frac_int = SUM_{j=0}^{N} W_i[j] * e_buf[j]
+//           = W_i[0]*e(k) + W_i[1]*e(k-1) + ... + W_i[20]*e(k-20)
+//
+//  W_i[j] already contains the Ts^lambda scale factor, so no
+//  additional division is needed at runtime.
+// ════════════════════════════════════════════════════════════════════
+#fi_sum := 0.0;
+FOR #j := 0 TO 20 DO
+    #fi_sum := #fi_sum + "DB_Params".W_i[#j] * "DB_FOPID".e_buf[#j];
+END_FOR;
+"DB_FOPID".frac_inte := #fi_sum;
+
+
+// ════════════════════════════════════════════════════════════════════
+//  STEP 5 — Compute fractional derivative term
+//
+//  frac_der = SUM_{j=0}^{N} W_d[j] * e_buf[j]
+//           = W_d[0]*e(k) + W_d[1]*e(k-1) + ... + W_d[20]*e(k-20)
+//
+//  W_d[j] already contains the 1/Ts^mu scale factor.
+// ════════════════════════════════════════════════════════════════════
+#fd_sum := 0.0;
+FOR #j := 0 TO 20 DO
+    #fd_sum := #fd_sum + "DB_Params".W_d[#j] * "DB_FOPID".e_buf[#j];
+END_FOR;
+"DB_FOPID".frac_der := #fd_sum;
+
+
+// ════════════════════════════════════════════════════════════════════
+//  STEP 6 — FOPID control law
+//
+//  u(k) = Kp * e(k)
+//       + Ki * frac_int(k)     ← fractional integral action
+//       + Kd * frac_der(k)     ← fractional derivative action
+// ════════════════════════════════════════════════════════════════════
+"DB_FOPID".u_raw := ("DB_Params".Kp * #e_now)
++ ("DB_Params".Ki * "DB_FOPID".frac_inte)
++ ("DB_Params".Kd * "DB_FOPID".frac_der);
+
+
+// ════════════════════════════════════════════════════════════════════
+//  STEP 7 — Output saturation (actuator limits)
+//
+//  Clamp u_raw to [U_Min, U_Max] to prevent:
+// ════════════════════════════════════════════════════════════════════
+IF "DB_FOPID".u_raw > "DB_Params".U_max THEN
+    "DB_FOPID".u_out := "DB_Params".U_max;
+    "DB_Params".Mon_Saturated := TRUE;
+ELSIF "DB_FOPID".u_raw < "DB_Params".U_min THEN
+    "DB_FOPID".u_out := "DB_Params".U_min;
+    "DB_Params".Mon_Saturated := TRUE;
+ELSE
+    "DB_FOPID".u_out := "DB_FOPID".u_raw;
+    "DB_Params".Mon_Saturated := FALSE;
+END_IF;
+
+
+// ════════════════════════════════════════════════════════════════════
+//  STEP 8 — First-order motor difference equation
+//
+//  Continuous:   G(s) = K / (T*s + 1)
+//  ZOH discrete: omega(k) = Motor_a*omega(k-1) + Motor_b*u(k-1)
+//
+//  where:
+//    Motor_a = exp(-Ts / T_motor)          
+//    Motor_b = K_motor * (1 - Motor_a)     
+// ════════════════════════════════════════════════════════════════════
+"DB_FOPID".omega := "DB_Params".Motor_a * "DB_FOPID".omega
++ "DB_Params".Motor_b * "DB_FOPID".u_out;
+
+// Physical speed clamp (protection against model divergence)
+IF "DB_FOPID".omega < 0.0 THEN
+    "DB_FOPID".omega := 0.0;
+ELSIF "DB_FOPID".omega > 530.0 THEN
+    "DB_FOPID".omega := 530.0;
+END_IF;
+
+
+// ════════════════════════════════════════════════════════════════════
+//  STEP 9 — Update monitoring variables
+//  These are written to DB_Params every cycle so they appear live
+//  in the Watch Table and TIA Portal Trace.
+// ════════════════════════════════════════════════════════════════════
+"DB_Params".Mon_Omega := "DB_FOPID".omega;
+"DB_Params".Mon_Error := #e_now;
+"DB_Params".Mon_Output := "DB_FOPID".u_out;
+"DB_Params".Mon_FracInt := "DB_FOPID".frac_inte;
+"DB_Params".Mon_FracDer := "DB_FOPID".frac_der;
