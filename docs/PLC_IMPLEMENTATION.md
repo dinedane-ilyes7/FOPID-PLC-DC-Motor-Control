@@ -1,47 +1,23 @@
-# Siemens S7-1200 fractional-order controller — technical summary
+# PLC SCL control-loop excerpt
 
-**Original study authors:** Kaim Abdeldjalil and Ighil Abderraouf (University of Boumerdes, 2025–2026). The thesis is a reference only and is not published here.
+This page explains the supplied [SCL source](../plc/FB_FOPID_SIL_excerpt.scl), not a verified complete TIA Portal project.
 
-## Described experimental platform
+## Algorithm in the source file
 
-| Component | Thesis description |
-| --- | --- |
-| PLC | Siemens SIMATIC S7-1200 CPU 1215C DC/DC/DC (6ES7 215-1AG40-0XB0) |
-| Motor trainer | Feedback Instruments MS150 platform / MT150F DC motor |
-| Servo amplifier | SA150D |
-| Speed sensing | GT150X tachogenerator |
-| Software | Siemens TIA Portal, SCL, PLCSIM |
-| Scheduled control task | OB30 cyclic interrupt, 10 ms |
+1. Compute tracking error `e_now = DB_Params.SP - DB_FOPID.omega`.
+2. Shift stored error values and insert the newest error at index 0.
+3. Compute fractional integral and derivative sums using `DB_Params.W_i` and `DB_Params.W_d`.
+4. Combine the proportional, fractional integral and fractional derivative terms with `Kp`, `Ki` and `Kd`.
+5. Saturate the commanded output to configured `U_min` / `U_max`.
+6. Update `omega` using the provided **first-order simulated motor-model** coefficients `Motor_a` and `Motor_b`.
+7. Copy telemetry into monitor variables in `DB_Params`.
 
-## Fractional-order control
+## Discrete fractional approximation
 
-The discrete Grünwald–Letnikov (GL) implementation uses finite weighted sums of past errors:
+The error-history buffer has positions **0..20** (21 values including the current error). The code loops over all these positions for both weighted sums. Weight generation and all parameter/data-block declarations are not present in the shared excerpt.
 
-```text
-e[k] = reference[k] - speed[k]
+## Running on hardware
 
-u[k] = Kp*e[k]
-     + Ki*sum(Wi[j]*e[k-j])
-     + Kd*sum(Wd[j]*e[k-j])
-```
+The code uses Siemens-style Structured Control Language (SCL) and data-block names but **is not independently compilable or deployable** without the missing TIA Portal project elements. Real-hardware operation would additionally require verified tachometer input scaling, motor-drive output scaling, protection, safe-stop behavior and the correct PLC configuration. None of those physical integration details is verified by this source excerpt.
 
-In [the provided SCL excerpt](../plc/FB_FOPID_SIL_excerpt.scl), the error-history array is indexed `0..20` (21 stored values: current + 20 past errors). The reference thesis uses the phrase “20-sample memory”, which needs an exact indexing convention when reconstructing the block interface.
-
-The excerpt references `DB_Params`, `DB_FOPID`, precomputed `W_i` and `W_d` values, plus first-order motor-model coefficients. It computes saturation and monitor signals. The excerpt's `omega` update is a **simulated first-order plant**, so it does not alone prove live tachogenerator feedback or physical closed-loop operation.
-
-## TIA Portal architecture described in the thesis
-
-- **OB30**: cyclic scheduling of reference/feedback, control function, and monitoring.
-- **FB_FOPID**: fractional weighted sums, control output and bounds.
-- **Motor-model simulation function**: discrete first-order plant used in SIL testing.
-- **Data blocks**: parameters, precomputed weights, history arrays, monitor variables.
-
-## Analog scaling reported in the thesis
-
-The report describes `IW64` as an analog feedback input spanning 0–27648 digital counts for 0–10 V, with speed conversion up to the test system's nominal 530 rad/s. It discusses output `QW66` and a 0–20 mA interface for the motor drive.
-
-**Do not commission real hardware from this summary.** Verify actual installed I/O modules, electrical connections, analog scaling, motor drive limits, emergency stop and watchdog behavior against device documentation.
-
-## Missing native project files
-
-No native TIA Portal project archive, full FB/DB declarations, hardware configuration, complete wiring drawing or tested real-hardware deployment code was present in the linked Drive folder. The [SCL source](../plc/FB_FOPID_SIL_excerpt.scl) is consequently labeled **excerpt**, not a complete runnable PLC program.
+See [reproducibility notes](REPRODUCIBILITY.md) and the [original source archive](../source_original/).
