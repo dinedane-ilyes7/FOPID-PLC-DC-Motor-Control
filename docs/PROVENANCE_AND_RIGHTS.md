@@ -1,30 +1,24 @@
-# Original sources, attribution and publication
+# Source provenance and attribution
 
-## Original research
+## Original project
 
-**Title:** *Design and Real-Time PLC Implementation of a Fractional-Order PID Controller for DC Motor Speed Control*  
-**Researchers:** Kaim Abdeldjalil and Ighil Abderraouf  
-**Supervisor:** Dr. Haddouche Rezki  
-**Institution:** Institute of Electrical and Electronics Engineering / University of Boumerdes, Algeria  
-**Year:** 2025–2026
+The MATLAB optimization, PID/FOPID cost functions and Siemens SCL source are from the [shared project folder](https://drive.google.com/drive/folders/11zTw4uKzmxQ4Z31S2awmMDKce1stDv-_).
 
-This repository uses the original thesis as a **technical reference only**. **No copy of the thesis PDF, no altered-cover edition, and no thesis page has been committed to GitHub.**
+**Original project authors:** Kaim Abdeldjalil and Ighil Abderraouf.
 
-## Linked shared materials
+The GitHub maintainer is organizing and documenting this code. This repository does **not** claim that the maintainer designed the original controller, conducted the experiments or authored the supplied source code.
 
-[Source Google Drive folder](https://drive.google.com/drive/folders/11zTw4uKzmxQ4Z31S2awmMDKce1stDv-_)
+## File origins
 
-Original files supplied in that folder:
-- `Tia portal code.txt`: Siemens SCL motor-model / fractional-control excerpt
-- `cost function PID.txt`: MATLAB PID PSO objective
-- `cost function FOPID.txt`: MATLAB FOPID PSO objective
-- `optimization controllers.txt`: MATLAB PSO controller design and comparison
-- Experiment and simulation plots, including PLC/step/disturbance figures (available from original shared folder, not rehosted here)
+| Supplied file | Location |
+| --- | --- |
+| `Tia portal code.txt` | `source_original/`; convenience copy in `plc/` |
+| `cost function PID.txt` | `source_original/`; MATLAB copy in `matlab/` |
+| `cost function FOPID.txt` | `source_original/`; MATLAB copy in `matlab/` |
+| `optimization controllers.txt` | `source_original/`; MATLAB script copy in `matlab/` |
 
-The four original text sources are preserved under [`source_original/`](../source_original/). MATLAB `.m` and PLC `.scl` variants are convenience copies; the MATLAB optimizer's local function was relocated to the script end.
+The convenience MATLAB optimization script moves a helper function to the bottom of the file for MATLAB script layout compliance. The untouched supplied source remains available for inspection.
 
-## Ownership
+## Rights
 
-**Publicly viewable files do not automatically carry a redistribution license.** The original authors retain their rights. This repository does not grant an MIT, GPL or other open-source license over the source material.
-
-The GitHub maintainer has not been identified as a thesis author or experimental investigator in the reference document. Do **not** describe this project as the maintainer's original master's thesis or their own measured hardware experiments. The maintainer should confirm the original authors' consent for continued public redistribution of the source code and any additional media.
+Publicly accessible Drive materials do not necessarily have a redistribution license. **Original authors retain their rights.** No open-source license is granted or implied for the code here. Confirm consent to continued publication and use appropriate attribution when discussing the work.
