@@ -1,0 +1,520 @@
+%% =========================================================
+%  DC Motor Speed Control - First-Order Plant
+%  FOPID and PID tuned by PSO
+%
+%  Plant : G(s) = 35.2 / (1.1s + 1)   [simple first-order]
+%  Extras: Actuator saturation 24 V
+%          Smooth control signal penalty
+%          Oscillation guard
+%
+%  Requires: FOTF Toolbox
+%            fopid_cost.m
+%            pid_cost.m
+%% =========================================================
+clear; clc; close all;
+
+%% -------------------------------------------------------
+%  Plant Parameters
+%% -------------------------------------------------------
+%K_m       = 35.2;      % DC gain
+%tau_m     = 1.1;       % time constant [s]
+V_max     = 15;        % actuator saturation [V]
+omega_ref = 200;        % speed reference [rad/s]
+
+%% -------------------------------------------------------
+%  Build Transfer Function  G(s) = K_m / (tau_m*s + 1)
+%% -------------------------------------------------------
+%G_motor  = tf(K_m, [tau_m, 1]);
+%G_motor  = minreal(G_motor, 0.01);
+%motor_tf = fotf(G_motor);          % FOTF object for PSO cost functions
+
+%% Plant: harder second-order + delay version
+K_m   = 38.7;
+tau1  = 1.07;    % dominant mechanical time constant 1.1
+tau2  = 0.27;   % parasitic electrical time constant 0.28
+L     = 0.03;   % tr5ansport delay [s]  0.04
+
+% Pade approximation of delay (2nd order) for FOTF compatibility
+[num_pade, den_pade] = pade(L, 3);
+G_delay  = tf(num_pade, den_pade);
+G_plant  = tf(K_m, conv([tau1 1], [tau2 1]));
+G_motor  = minreal(G_plant * G_delay, 0.01);
+motor_tf = fotf(G_motor);
+%% -------------------------------------------------------
+%  Display Information
+%% -------------------------------------------------------
+%fprintf('\n%s\n', repmat('=',1,62));
+%fprintf('  First-Order DC Motor Plant\n');
+%fprintf('%s\n', repmat('=',1,62));
+%fprintf('  K_m       = %.4f   (DC gain)\n',        K_m);
+%fprintf('  tau_m     = %.4f   s  (time constant)\n', tau_m);
+fprintf('  V_max     = %.0f    V  (actuator limit)\n', V_max);
+fprintf('  omega_ref = %.0f    rad/s  (%.1f RPM)\n', ...
+        omega_ref, omega_ref*60/(2*pi));
+fprintf('  Plant order = %d\n', order(G_motor));
+fprintf('  G(s) = 34.8 * e^(-0.08s) / ((1.1s+1)(0.18s+1))\n');
+fprintf('  Dominant pole : %.4f s\n', tau1);
+fprintf('  Parasitic pole: %.4f s\n', tau2);
+fprintf('  Transport delay: %.3f s\n', L);
+
+%% Bandwidth and time-domain characteristics
+%tau_BW = 1 / tau_m;
+%fprintf('\n  Plant bandwidth  : %.4f rad/s\n', tau_BW);
+%fprintf('  Plant time const : %.4f s\n',      tau_m);
+%fprintf('  Plant DC gain    : %.4f\n',         K_m);
+
+%% Stability check
+p_plant = pole(G_motor);
+fprintf('\n  Plant poles:\n');
+disp(p_plant);
+if all(real(p_plant) < 0)
+    fprintf('  Plant is open-loop stable. Proceeding.\n\n');
+else
+    error('Plant has unstable poles. Adjust parameters.');
+end
+
+%% -------------------------------------------------------
+%  PSO Settings
+%% -------------------------------------------------------
+nParticles = 80;
+maxIter    = 80;
+w_max      = 0.9;
+w_min      = 0.4;
+c1         = 2.0;
+c2         = 2.0;
+
+%% -------------------------------------------------------
+%  Search Bounds
+%% -------------------------------------------------------
+%% FOPID: [Kp, Ki, Kd, lambda, mu]
+%  Tuned for first-order plant — wider Kp/Ki range than two-mass
+lb_f = [0.01,  0.01,  0.001,  0.5,  0.5];
+ub_f = [5.00,  5.00,  2.000,  1.0,  1.0];
+
+%% PID: [Kp, Ki, Kd]  — same Kp/Ki/Kd range for fair comparison
+lb_p = [0.01,  0.01,  0.001];
+ub_p = [5.00,  5.00,  2.000];
+
+v_max_f =  0.1*(ub_f - lb_f);
+v_min_f = -v_max_f;
+v_max_p =  0.1*(ub_p - lb_p);
+v_min_p = -v_max_p;
+
+%% =======================================================
+%  PART A — FOPID PSO TUNING
+%% =======================================================
+fprintf('%s\n', repmat('=',1,62));
+fprintf('  PSO TUNING - FOPID\n');
+fprintf('%s\n', repmat('=',1,62));
+
+rng(42);
+pos_f  = lb_f + (ub_f - lb_f).*rand(nParticles, 5);
+vel_f  = zeros(nParticles, 5);
+cost_f = inf(nParticles, 1);
+
+fprintf('Initializing FOPID swarm (%d particles)...\n', nParticles);
+for i = 1:nParticles
+    cost_f(i) = fopid_cost(pos_f(i,:), motor_tf, omega_ref);
+    fprintf('  Particle %2d | Cost = %.4f\n', i, cost_f(i));
+end
+
+pbest_pos_f  = pos_f;
+pbest_cost_f = cost_f;
+[gbest_cost_f, idx] = min(cost_f);
+gbest_pos_f  = pos_f(idx,:);
+conv_f       = zeros(maxIter, 1);
+
+fprintf('\nInit done. Best initial cost: %.4f\n', gbest_cost_f);
+
+if gbest_cost_f >= 1e7
+    fprintf('WARNING: No feasible solution in init. Check bounds.\n');
+end
+
+fprintf('\n%-6s %-12s %-8s %-8s %-8s %-8s %-8s\n', ...
+        'Iter','Cost','Kp','Ki','Kd','Lambda','Mu');
+fprintf('%s\n', repmat('-',1,62));
+
+for iter = 1:maxIter
+    w = w_max - (w_max - w_min)*iter/maxIter;
+
+    for i = 1:nParticles
+        r1 = rand(1,5);
+        r2 = rand(1,5);
+
+        vel_f(i,:) = w*vel_f(i,:) ...
+            + c1*r1.*(pbest_pos_f(i,:) - pos_f(i,:)) ...
+            + c2*r2.*(gbest_pos_f       - pos_f(i,:));
+
+        vel_f(i,:) = max(v_min_f, min(v_max_f, vel_f(i,:)));
+        pos_f(i,:) = pos_f(i,:) + vel_f(i,:);
+        pos_f(i,:) = max(lb_f,   min(ub_f,   pos_f(i,:)));
+
+        new_cost = fopid_cost(pos_f(i,:), motor_tf, omega_ref);
+
+        if new_cost < pbest_cost_f(i)
+            pbest_cost_f(i)  = new_cost;
+            pbest_pos_f(i,:) = pos_f(i,:);
+        end
+        if new_cost < gbest_cost_f
+            gbest_cost_f = new_cost;
+            gbest_pos_f  = pos_f(i,:);
+        end
+    end
+
+    conv_f(iter) = gbest_cost_f;
+
+    if mod(iter,10)==0
+        fprintf('%-6d %-12.4f %-8.4f %-8.4f %-8.4f %-8.4f %-8.4f\n', ...
+            iter, gbest_cost_f, gbest_pos_f(1), gbest_pos_f(2), ...
+            gbest_pos_f(3), gbest_pos_f(4), gbest_pos_f(5));
+    end
+end
+
+Kp_f  = gbest_pos_f(1);
+Ki_f  = gbest_pos_f(2);
+Kd_f  = gbest_pos_f(3);
+lam_f = gbest_pos_f(4);
+mu_f  = gbest_pos_f(5);
+
+fprintf('\n%s\n', repmat('=',1,50));
+fprintf('OPTIMAL FOPID PARAMETERS:\n');
+fprintf('  Kp     = %.4f\n', Kp_f);
+fprintf('  Ki     = %.4f\n', Ki_f);
+fprintf('  Kd     = %.4f\n', Kd_f);
+fprintf('  Lambda = %.4f\n', lam_f);
+fprintf('  Mu     = %.4f\n', mu_f);
+fprintf('  Cost   = %.4f\n', gbest_cost_f);
+fprintf('%s\n', repmat('=',1,50));
+
+if lam_f > 0.95 && mu_f > 0.95
+    fprintf('\nNOTE: PSO converged near integer orders.\n');
+    fprintf('FOPID is behaving like PID for this plant.\n\n');
+else
+    fprintf('\nGenuinely fractional:\n');
+    fprintf('  lambda = %.4f   mu = %.4f\n\n', lam_f, mu_f);
+end
+
+%% =======================================================
+%  PART B — PID PSO TUNING
+%% =======================================================
+fprintf('%s\n', repmat('=',1,62));
+fprintf('  PSO TUNING - PID\n');
+fprintf('%s\n', repmat('=',1,62));
+
+rng(42);
+pos_p  = lb_p + (ub_p - lb_p).*rand(nParticles, 3);
+vel_p  = zeros(nParticles, 3);
+cost_p = inf(nParticles, 1);
+
+fprintf('Initializing PID swarm (%d particles)...\n', nParticles);
+for i = 1:nParticles
+    cost_p(i) = pid_cost(pos_p(i,:), motor_tf, omega_ref);
+    fprintf('  Particle %2d | Cost = %.4f\n', i, cost_p(i));
+end
+
+pbest_pos_p  = pos_p;
+pbest_cost_p = cost_p;
+[gbest_cost_p, idx] = min(cost_p);
+gbest_pos_p  = pos_p(idx,:);
+conv_p       = zeros(maxIter, 1);
+
+fprintf('\nInit done. Best initial cost: %.4f\n', gbest_cost_p);
+fprintf('\n%-6s %-12s %-10s %-10s %-10s\n', ...
+        'Iter','Cost','Kp','Ki','Kd');
+fprintf('%s\n', repmat('-',1,50));
+
+for iter = 1:maxIter
+    w = w_max - (w_max - w_min)*iter/maxIter;
+
+    for i = 1:nParticles
+        r1 = rand(1,3);
+        r2 = rand(1,3);
+
+        vel_p(i,:) = w*vel_p(i,:) ...
+            + c1*r1.*(pbest_pos_p(i,:) - pos_p(i,:)) ...
+            + c2*r2.*(gbest_pos_p       - pos_p(i,:));
+
+        vel_p(i,:) = max(v_min_p, min(v_max_p, vel_p(i,:)));
+        pos_p(i,:) = pos_p(i,:) + vel_p(i,:);
+        pos_p(i,:) = max(lb_p,   min(ub_p,   pos_p(i,:)));
+
+        new_cost = pid_cost(pos_p(i,:), motor_tf, omega_ref);
+
+        if new_cost < pbest_cost_p(i)
+            pbest_cost_p(i)  = new_cost;
+            pbest_pos_p(i,:) = pos_p(i,:);
+        end
+        if new_cost < gbest_cost_p
+            gbest_cost_p = new_cost;
+            gbest_pos_p  = pos_p(i,:);
+        end
+    end
+
+    conv_p(iter) = gbest_cost_p;
+
+    if mod(iter,10)==0
+        fprintf('%-6d %-12.4f %-10.4f %-10.4f %-10.4f\n', ...
+            iter, gbest_cost_p, gbest_pos_p(1), ...
+            gbest_pos_p(2), gbest_pos_p(3));
+    end
+end
+
+Kp_p = gbest_pos_p(1);
+Ki_p = gbest_pos_p(2);
+Kd_p = gbest_pos_p(3);
+
+fprintf('\n%s\n', repmat('=',1,50));
+fprintf('OPTIMAL PID PARAMETERS:\n');
+fprintf('  Kp     = %.4f\n', Kp_p);
+fprintf('  Ki     = %.4f\n', Ki_p);
+fprintf('  Kd     = %.4f\n', Kd_p);
+fprintf('  Cost   = %.4f\n', gbest_cost_p);
+fprintf('%s\n', repmat('=',1,50));
+
+%% =======================================================
+%  PART C — FINAL SIMULATION AND COMPARISON
+%% =======================================================
+fprintf('\nRunning final comparison simulation...\n');
+
+t = (0:0.01:5)';
+s = fotf('s');
+
+%  NOTE: C_pid uses integer orders (lambda=1, mu=1) — proper/causal FOTF
+C_fopid = Kp_f + Ki_f/s^lam_f + Kd_f*s^mu_f;
+C_pid   = Kp_p + Ki_p/s^1     + Kd_p*s^1;
+
+CL_fopid = feedback(C_fopid * motor_tf, 1);
+CL_pid   = feedback(C_pid   * motor_tf, 1);
+
+y_f = real(step(omega_ref * CL_fopid, t));  y_f(1) = 0;
+y_p = real(step(omega_ref * CL_pid,   t));  y_p(1) = 0;
+
+e_f = omega_ref - y_f;
+e_p = omega_ref - y_p;
+
+%  Control effort via lsim on FOTF objects (causal — no improper issue)
+u_f     = real(lsim(C_fopid, e_f, t));
+u_p     = real(lsim(C_pid,   e_p, t));
+u_f_sat = max(-V_max, min(V_max, u_f));
+u_p_sat = max(-V_max, min(V_max, u_p));
+
+%% -------------------------------------------------------
+%  Performance Metrics
+%% -------------------------------------------------------
+function m = get_metrics(y, t, omega_ref)
+    idx_ss = round(0.8*length(y));
+    y_ss   = mean(y(idx_ss:end));
+
+    c10 = find(diff(y >= 0.1*y_ss)==1, 1, 'first');
+    c90 = find(diff(y >= 0.9*y_ss)==1, 1, 'first');
+    if ~isempty(c10) && ~isempty(c90) && c90 > c10
+        m.rise_time = t(c90) - t(c10);
+    else
+        m.rise_time = NaN;
+    end
+
+    [pv,~]      = max(y);
+    m.overshoot = max(0, (pv - y_ss)/y_ss*100);
+
+    outside = find(abs(y - y_ss) > 0.02*abs(y_ss));
+    if isempty(outside)
+        m.settling_time = t(2);
+    else
+        m.settling_time = t(outside(end));
+    end
+
+    m.sse  = abs(omega_ref - y_ss);
+    m.itae = trapz(t, t.*abs(omega_ref - y));
+    m.iae  = trapz(t, abs(omega_ref - y));
+    m.ise  = trapz(t, (omega_ref - y).^2);
+end
+
+m_f = get_metrics(y_f, t, omega_ref);
+m_p = get_metrics(y_p, t, omega_ref);
+
+%% -------------------------------------------------------
+%  Print Summary Table
+%% -------------------------------------------------------
+fprintf('\n%s\n', repmat('=',1,65));
+fprintf('  FINAL PERFORMANCE COMPARISON\n');
+%fprintf('  Plant: G(s) = %.1f / (%.1fs + 1)\n', K_m, tau_m);
+fprintf('%s\n', repmat('=',1,65));
+fprintf('%-25s %-15s %-15s %-10s\n', 'Metric','FOPID','PID','Winner');
+fprintf('%s\n', repmat('-',1,65));
+
+metrics_tbl = {
+    'Rise Time [s]',     m_f.rise_time,     m_p.rise_time;
+    'Settling Time [s]', m_f.settling_time, m_p.settling_time;
+    'Overshoot [%]',     m_f.overshoot,     m_p.overshoot;
+    'SS Error [rad/s]',  m_f.sse,           m_p.sse;
+    'ITAE',              m_f.itae,          m_p.itae;
+    'IAE',               m_f.iae,           m_p.iae;
+    'ISE',               m_f.ise,           m_p.ise;
+};
+
+for k = 1:size(metrics_tbl,1)
+    name  = metrics_tbl{k,1};
+    vf    = metrics_tbl{k,2};
+    vp    = metrics_tbl{k,3};
+    if     vf < vp;  winner = 'FOPID';
+    elseif vp < vf;  winner = 'PID';
+    else;            winner = 'TIE';
+    end
+    fprintf('%-25s %-15.4f %-15.4f %-10s\n', name, vf, vp, winner);
+end
+
+fprintf('%s\n', repmat('-',1,65));
+fprintf('%-25s %-15.4f %-15s\n', 'Lambda', lam_f, '1.0000 (fixed)');
+fprintf('%-25s %-15.4f %-15s\n', 'Mu',     mu_f,  '1.0000 (fixed)');
+fprintf('%s\n', repmat('=',1,65));
+
+%% -------------------------------------------------------
+%  Figure 1 – FOPID Closed-Loop Response (standalone)
+%% -------------------------------------------------------
+figure(1);
+set(gcf,'Position',[50 50 950 520]);
+
+plot(t, y_f, 'b-', 'LineWidth', 2.2, 'DisplayName', 'FOPID Response');
+hold on;
+plot(t, omega_ref*ones(size(t)), 'k:', 'LineWidth', 1.2, 'DisplayName', 'Reference');
+%yline(omega_ref*1.02,'k-.','LineWidth',0.8,'HandleVisibility','off');
+%yline(omega_ref*0.98,'k-.','LineWidth',0.8,'HandleVisibility','off');
+%text(4.0, omega_ref*1.025, '+2%','FontSize',9,'Color',[0.4 0.4 0.4]);
+%text(4.0, omega_ref*0.975, '-2%','FontSize',9,'Color',[0.4 0.4 0.4]);
+
+xlabel('Time (s)','FontSize',12);
+ylabel('Angular Velocity (rad/s)','FontSize',12);
+title('FOPID Closed-Loop Step Response','FontSize',13);
+legend('Location','southeast','FontSize',10);
+xlim([0 5]); grid on; box on;
+
+%% -------------------------------------------------------
+%  Figure 2 – PID Closed-Loop Response (standalone)
+%% -------------------------------------------------------
+figure(2);
+set(gcf,'Position',[100 100 950 520]);
+
+plot(t, y_p, 'r--', 'LineWidth', 2.2, 'DisplayName', 'PID Response');
+hold on;
+plot(t, omega_ref*ones(size(t)), 'k:', 'LineWidth', 1.2, 'DisplayName', 'Reference');
+%yline(omega_ref*1.02,'k-.','LineWidth',0.8,'HandleVisibility','off');
+%yline(omega_ref*0.98,'k-.','LineWidth',0.8,'HandleVisibility','off');
+%text(4.0, omega_ref*1.025, '+2%','FontSize',9,'Color',[0.4 0.4 0.4]);
+%text(4.0, omega_ref*0.975, '-2%','FontSize',9,'Color',[0.4 0.4 0.4]);
+
+xlabel('Time (s)','FontSize',12);
+ylabel('Angular Velocity (rad/s)','FontSize',12);
+title('PID Closed-Loop Step Response','FontSize',13);
+legend('Location','southeast','FontSize',10);
+xlim([0 5]); grid on; box on;
+
+%% -------------------------------------------------------
+%  Figure 3 – Comparison (both overlaid)
+%% -------------------------------------------------------
+figure(3);
+set(gcf,'Position',[150 150 950 520]);
+
+plot(t, y_f, 'b-',  'LineWidth', 2.2, 'DisplayName', 'FOPID Response');
+hold on;
+plot(t, y_p, 'r--', 'LineWidth', 1.8, 'DisplayName', 'PID Response');
+plot(t, omega_ref*ones(size(t)), 'k:', 'LineWidth', 1.2, 'DisplayName', 'Reference');
+yline(omega_ref*1.02,'k-.','LineWidth',0.8,'HandleVisibility','off');
+yline(omega_ref*0.98,'k-.','LineWidth',0.8,'HandleVisibility','off');
+text(4.0, omega_ref*1.025, '+2%','FontSize',9,'Color',[0.4 0.4 0.4]);
+text(4.0, omega_ref*0.975, '-2%','FontSize',9,'Color',[0.4 0.4 0.4]);
+
+xlabel('Time (s)','FontSize',12);
+ylabel('Angular Velocity (rad/s)','FontSize',12);
+title('PSO-Tuned FOPID vs PID — Closed-Loop Comparison','FontSize',13);
+legend('Location','southeast','FontSize',10);
+xlim([0 5]); grid on; box on;
+
+
+%% -------------------------------------------------------
+%  FIGURE 2 — Control Signal with Saturation
+%% -------------------------------------------------------
+figure(4);
+set(gcf,'Position',[50 50 950 440]);
+
+plot(t, u_f_sat, 'b-',  'LineWidth', 1.8, 'DisplayName','FOPID'); hold on;
+plot(t, u_p_sat, 'r--', 'LineWidth', 1.5, 'DisplayName','PID');
+yline( V_max,'k:','LineWidth',1.5,'HandleVisibility','off');
+yline(-V_max,'k:','LineWidth',1.5,'HandleVisibility','off');
+text(2.5,  V_max*0.88, sprintf('+V_{max} = +%.0f V', V_max),'FontSize',10);
+text(2.5, -V_max*0.92, sprintf('-V_{max} = -%.0f V', V_max),'FontSize',10);
+
+xlabel('Time (s)','FontSize',12);
+ylabel('Control Voltage (V)','FontSize',12);
+title('Control Signal with Actuator Saturation at ±24 V','FontSize',12);
+legend('Location','northeast','FontSize',11);
+xlim([0 5]); grid on; box on;
+
+%% -------------------------------------------------------
+%  FIGURE 3 — Error Signal
+%% -------------------------------------------------------
+figure(5);
+set(gcf,'Position',[50 50 950 420]);
+
+plot(t, e_f, 'b-',  'LineWidth', 1.8, 'DisplayName','FOPID'); hold on;
+plot(t, e_p, 'r--', 'LineWidth', 1.5, 'DisplayName','PID');
+yline(0,'k:','LineWidth',1.0,'HandleVisibility','off');
+
+xlabel('Time (s)','FontSize',12);
+ylabel('Error (rad/s)','FontSize',12);
+title('Tracking Error — FOPID vs PID','FontSize',12);
+legend('Location','northeast','FontSize',11);
+xlim([0 5]); grid on; box on;
+
+%% -------------------------------------------------------
+%  FIGURE 4 — PSO Convergence
+%% -------------------------------------------------------
+figure(6);
+set(gcf,'Position',[50 50 820 440]);
+
+semilogy(1:maxIter, conv_f, 'b-o', 'LineWidth', 1.8, ...
+         'MarkerSize', 3, 'DisplayName','FOPID'); hold on;
+semilogy(1:maxIter, conv_p, 'r-s', 'LineWidth', 1.8, ...
+         'MarkerSize', 3, 'DisplayName','PID');
+
+xlabel('Iteration','FontSize',12);
+ylabel('Best Cost (log scale)','FontSize',12);
+title('PSO Convergence Curve — FOPID vs PID','FontSize',12);
+legend('Location','northeast','FontSize',11);
+grid on; box on;
+
+%% -------------------------------------------------------
+%  FIGURE 5 — Bar Chart Performance Comparison
+%% -------------------------------------------------------
+figure(7);
+set(gcf,'Position',[50 50 1000 420]);
+
+cat_names  = {'Rise Time (s)','Settling Time (s)', ...
+              'Overshoot (%)','SS Error','ITAE','IAE'};
+fopid_vals = [m_f.rise_time, m_f.settling_time, m_f.overshoot, ...
+              m_f.sse,       m_f.itae,           m_f.iae];
+pid_vals   = [m_p.rise_time, m_p.settling_time, m_p.overshoot, ...
+              m_p.sse,       m_p.itae,           m_p.iae];
+
+X = categorical(cat_names);
+X = reordercats(X, cat_names);
+b = bar(X, [fopid_vals; pid_vals]', 0.6);
+b(1).FaceColor = [0.15 0.40 0.75];
+b(2).FaceColor = [0.85 0.20 0.20];
+
+for i = 1:2
+    xp = b(i).XEndPoints;
+    yp = b(i).YEndPoints;
+    text(xp, yp, arrayfun(@(v) sprintf('%.3f',v), b(i).YData, ...
+         'UniformOutput',false), ...
+         'HorizontalAlignment','center', ...
+         'VerticalAlignment','bottom','FontSize',8);
+end
+
+legend({'FOPID','PID'},'Location','northwest','FontSize',11);
+title('Performance Metrics ','FontSize',12);
+ylabel('Value','FontSize',11);
+grid on; box on;
+
+fprintf('\nDone. 5 figures generated.\n');
+%fprintf('Plant: G(s) = %.4f / (%.4f s + 1)\n', K_m, tau_m);
+%% =========================================================
