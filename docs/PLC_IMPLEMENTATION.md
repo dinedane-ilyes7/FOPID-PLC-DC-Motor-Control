@@ -14,7 +14,7 @@ This page explains the supplied [SCL source](../plc/FB_FOPID_SIL_excerpt.scl), n
 
 ## Discrete fractional approximation
 
-The error-history buffer has positions **0..20** (21 values including the current error). The code loops over all these positions for both weighted sums. Weight generation and all parameter/data-block declarations are not present in the shared excerpt.
+The error-history buffer has positions **0..20** (21 values including the current error). The code loops over all these positions for both weighted sums. Weight generation and all parameter/data-block declarations are not present in the supplied excerpt.
 
 ## Running on hardware
 
