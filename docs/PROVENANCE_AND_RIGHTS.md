@@ -1,24 +1,20 @@
-# Source provenance and attribution
+# Project source and file origins
 
-## Original project
+This repository contains **Ilyes Dinedane's PID/FOPID DC motor control project**. The MATLAB optimization scripts and Siemens PLC SCL excerpt were supplied by the repository maintainer from the project source folder.
 
-The MATLAB optimization, PID/FOPID cost functions and Siemens SCL source are from the [shared project folder](https://drive.google.com/drive/folders/11zTw4uKzmxQ4Z31S2awmMDKce1stDv-_).
+## Source files
 
-**Original project authors:** Kaim Abdeldjalil and Ighil Abderraouf.
-
-The GitHub maintainer is organizing and documenting this code. This repository does **not** claim that the maintainer designed the original controller, conducted the experiments or authored the supplied source code.
-
-## File origins
-
-| Supplied file | Location |
+| Provided project file | Published location |
 | --- | --- |
-| `Tia portal code.txt` | `source_original/`; convenience copy in `plc/` |
+| `Tia portal code.txt` | `source_original/`; readable copy in `plc/` |
 | `cost function PID.txt` | `source_original/`; MATLAB copy in `matlab/` |
 | `cost function FOPID.txt` | `source_original/`; MATLAB copy in `matlab/` |
 | `optimization controllers.txt` | `source_original/`; MATLAB script copy in `matlab/` |
 
-The convenience MATLAB optimization script moves a helper function to the bottom of the file for MATLAB script layout compliance. The untouched supplied source remains available for inspection.
+The MATLAB optimization script moves a helper function to the end to meet MATLAB script structure requirements. The original supplied text is preserved separately for comparison.
 
-## Rights
+## Scope and rights
 
-Publicly accessible Drive materials do not necessarily have a redistribution license. **Original authors retain their rights.** No open-source license is granted or implied for the code here. Confirm consent to continued publication and use appropriate attribution when discussing the work.
+The files document a PID/FOPID project covering PSO-based MATLAB controller tuning and a Siemens PLC SCL control-loop excerpt. They are not proof of a fully deployed or tested physical system.
+
+No standalone redistribution license is included in the repository. Project and code ownership should be respected.
