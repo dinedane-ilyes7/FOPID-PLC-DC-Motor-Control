@@ -2,9 +2,9 @@
 
 **MATLAB PSO optimization · Siemens PLC SCL control-loop excerpt · DC motor speed control**
 
-This repository organizes the source code shared in the [original project Drive folder](https://drive.google.com/drive/folders/11zTw4uKzmxQ4Z31S2awmMDKce1stDv-_). It compares **classical PID** and **fractional-order PID (FOPID)** controllers for a motor-speed model and documents a fractional-control algorithm written in Siemens Structured Control Language (SCL).
+This project investigates **classical PID** and **fractional-order PID (FOPID)** control of DC motor speed using **MATLAB**, particle swarm optimization (PSO), and a **Siemens PLC Structured Control Language (SCL)** implementation.
 
-**Original project authors:** Kaim Abdeldjalil and Ighil Abderraouf. The GitHub maintainer is publishing an attributed technical source archive, not claiming authorship of the original implementation.
+**Project:** Ilyes Dinedane · Control engineering / industrial automation
 
 ## Project overview
 
@@ -58,8 +58,10 @@ optimization_controllers
 - This repository does **not** contain a complete native TIA Portal project, all data-block declarations, or a physical I/O configuration.
 - The SCL excerpt includes a **simulated plant** update; it is not proof of deployed closed-loop hardware operation.
 - No performance claim is independently validated by a new MATLAB or PLC run.
-- The shared project source remains credited to its original authors; no reuse license has been assigned here.
+- No open-source license is included; repository availability does not imply unrestricted reuse.
 
-## Original source and attribution
+## Project source
 
-Original code is taken from the [shared Drive project folder](https://drive.google.com/drive/folders/11zTw4uKzmxQ4Z31S2awmMDKce1stDv-_). Research and code credit: **Kaim Abdeldjalil and Ighil Abderraouf**. Confirm the original authors' permission for continued public redistribution.
+The project's MATLAB and PLC source files were supplied by **Ilyes Dinedane** and are organized in this repository for easier review and use. The provided source text is retained under [`source_original/`](source_original/), with readable MATLAB and SCL copies in their respective directories.
+
+This repository contains project code and engineering notes; it does not include a complete native TIA Portal project or independent hardware-test evidence.
